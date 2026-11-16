@@ -13,7 +13,7 @@ Set Default Proof Mode "Classic".
 Section Frame.
 
   Context {Σ : Signature} {definedness_syntax : Definedness_Syntax.Syntax}.
-    
+
   Lemma Framing_StructureContext (Γ : Theory) (C : StructureContext)
     (A B : Pattern) (i : ProofInfo):
     well_formed (sc_pred C) -> 
@@ -250,7 +250,7 @@ Section ElimExists.
 
 End ElimExists.
  
-Tactic Notation "mlElimExists" := apply MLGoal_elim_exists.
+Tactic Notation "mlElimExists" := _ensureProofMode; apply MLGoal_elim_exists.
 
 Section ElimForall.
 
@@ -316,8 +316,7 @@ Section IntroForall.
     + useBasicReasoning.
       unfold forall_quantify.
       Check forall_variable_substitution.
-      pose proof (Hs := forall_variable_substitution Γ
-        ((contextual_implication C ψ)^{{evar:x↦0}})
+      pose proof (Hs := forall_variable_substitution Γ ((contextual_implication C ψ)^{{evar:x↦0}})
         x ltac:(wf_auto2)).
       assert (Heq : (contextual_implication C ψ)^{{evar:x↦0}}^{evar:0↦x} = contextual_implication C ψ).
       - apply evar_open_evar_quantify.
@@ -372,9 +371,9 @@ Proof.
   + fromMLGoal. exact H.
 Qed.
 
-(* TODO Introduce recursive paramtetric symbols using product sorts so we can state lfp
+(* TODO: after wrap+unwrap: Introduce recursive paramtetric symbols using product sorts so we can state lfp
   to become an actually recursive parametric lemma*)
-  
+
 (* TODO: lfp *)
 
 (* TODO: kt *)
@@ -386,3 +385,7 @@ Qed.
 (* TODO after kt: match-ctx, pm *)
 
 (* TODO after match-ctx + pm: proof search algo *)
+
+(* TODO: for SMT can we use a plain Rocq tactic instead of an actual SMT solver ? *)
+(* this might be dependant on how we encode the SL specifics ... *)
+(* Rocq tactic for SMT : maybe mlTauto ? *)
