@@ -18,7 +18,9 @@ Section WrapUnwrap.
 
   Context {Σ : Signature} {definedness_syntax : Definedness_Syntax.Syntax}.
 
-  (* (∃x. C[x] and x ∈ φ) -> ψ    ->    x ∈ φ -> C[x] -> ψ *)
+  (* (∃x. C[x] and x ∈ φ) -> ψ
+     -------------------------
+        x ∈ φ -> C[x] -> ψ      *)
   Lemma unwrap_step_FOL (Γ : Theory) (C : StructureContext) φ ψ (x : evar):
     well_formed φ ->
     well_formed ψ ->
@@ -55,7 +57,7 @@ Section WrapUnwrap.
     Γ ⊢ (subst_ctx C φ and P) ---> (subst_ctx C (φ and P)).
   Proof.
     intros Ht wfphi wfP Hpredpat.
-      
+
     induction C as [| C IH p wfp | p C IH wfp]; simpl.
       + mlIntro "H".
         mlExact "H".
@@ -108,6 +110,7 @@ Section WrapUnwrap.
     Γ ⊢ (exists_quantify x (sc_plug C (patt_free_evar x) and patt_free_evar x ∈ml φ) ---> ψ).
   Proof.
     intros Ht wfphi wfpsi wfscpred Hxacfresh Hxscpredfresh H.
+    (* ∃x. C[x ∧ x ∈ φ] *)
     eapply (syllogism_meta (B := exists_quantify x (sc_plug C (patt_free_evar x and patt_free_evar x ∈ml φ)))).
     + apply evar_quantify_well_formed. wf_auto2.
     + apply evar_quantify_well_formed. wf_auto2.
@@ -159,7 +162,7 @@ Section WrapUnwrap.
       - exact H.
   Qed.
 
-  (* helper between quantifiers (b0 and x) *)
+  (* helper between quantifiers (b0 and x forms) *)
   Lemma exists_quantify_set_builder (Γ : Theory) (C : StructureContext) φ (x : evar):
   evar_is_fresh_in x φ ->
   exists_quantify x (patt_free_evar x and patt_free_evar x ∈ml φ) =
@@ -200,8 +203,6 @@ Section WrapUnwrap.
     Check set_builder_full_iff.
     pose proof set_builder_full_iff as base_eq.
     specialize (base_eq Γ φ hft wfphi). unfold patt_set_builder in base_eq.
-    
-    pose proof (pf_iff_proj1 Γ φ (ex, b0 and b0 ∈ml φ)).
     
     eapply (syllogism_meta (B := sc_plug C φ)); [wf_auto2 | wf_auto2 | wf_auto2 | |].
     + apply (Framing_StructureContext Γ C _ φ AnyReasoning); [wf_auto2 |].
@@ -260,7 +261,7 @@ Section WrapUnwrap.
     ---------------------------
     ∃x. x ∧ ⌊ C[x] -> ψ ⌋
    *)
-  Lemma wrap_FOL_step (Γ : Theory) (C : StructureContext) φ ψ (x : evar):
+  Lemma unwrap_FOL_step (Γ : Theory) (C : StructureContext) φ ψ (x : evar):
   Definedness_Syntax.theory ⊆ Γ ->
   well_formed φ ->
   well_formed ψ ->
@@ -326,6 +327,22 @@ Section WrapUnwrap.
     exact H.
    Qed.
 
+  Lemma wrap_membership_introduction_step (Γ : Theory) (C: StructureContext) φ ψ x y:
+    Γ ⊢ φ ---> exists_quantify x (patt_free_evar x and ⌊ sc_plug C (patt_free_evar x) ---> ψ ⌋) ->
+    Γ ⊢ patt_free_evar y ∈ml φ ---> exists_quantify x ((patt_free_evar y ∈ml patt_free_evar x) and ⌊ sc_plug C (patt_free_evar x) ---> ψ ⌋).
+  Proof.
+    
+  Admitted.
+
+  Lemma wrap_elem_eq_eq (Γ : Theory) x y:
+   patt_free_evar y ∈ml patt_free_evar x = patt_free_evar y =ml patt_free_evar x.
+  Proof.
+    
+  Admitted.
+
+  (* Γ ⊢ φ -> (C ⊸ ψ) 
+  ---------------
+     Γ ⊢ C[φ] -> ψ   *)
   (* layer 1 lemma for wrap *)
   Lemma wrap
     (Γ : Theory)
@@ -342,28 +359,29 @@ Section WrapUnwrap.
     remember (evar_fresh (elements (free_evars φ ∪ free_evars ψ ∪ free_evars (sc_pred C) ∪ AC_free_evars (sc_ac C)))) as x eqn:Hx.
     apply X_eq_evar_fresh_impl_X_notin_S in Hx.
 
-    remember (evar_fresh (elements (free_evars φ ∪ free_evars ψ ∪ free_evars (sc_pred C) ∪ {[x]}))) as y eqn:Hy.
+    remember (evar_fresh (elements (free_evars φ ∪ free_evars ψ ∪
+      free_evars (sc_pred C) ∪ free_evars (sc_plug C (patt_free_evar x)) ∪ {[x]}))) as y eqn:Hy.
     apply X_eq_evar_fresh_impl_X_notin_S in Hy.
 
     pose proof (contextual_implication_exists_quantify Γ C φ ψ x Ht wfphi wfpsi) as H0.
 
     apply H0 in H.
-    clear H0.
-
-    (* (Membership Introduction) step *)
-    (* wrong φ? *)
-    pose proof (membership_introduction Γ φ AnyReasoning x ltac:(try_solve_pile) ltac:(wf_auto2) ltac:(set_solver) Ht) as Hmembintr.
     2: { set_solver. }
     3: { unfold evar_is_fresh_in. set_solver. }
     2: { unfold evar_is_fresh_in. set_solver. }
+    clear H0.
+
+    apply (wrap_membership_introduction_step _ _ _ _ x y) in H.
+    
+    pose proof (wrap_elem_eq_eq Γ x y) as Hwrap_elem_eq_eq.
+    rewrite Hwrap_elem_eq_eq in H; clear Hwrap_elem_eq_eq.
   Admitted.
 
   (* layer 1 unwrap lemma: *)
   (* Γ ⊢ C[φ] -> ψ
     ---------------
     Γ ⊢ φ -> (C ⊸ ψ)  *)
-  Lemma unwrap
-    (Γ : Theory)
+  Lemma unwrap (Γ : Theory)
     (C : StructureContext) φ ψ :
     Definedness_Syntax.theory ⊆ Γ ->
     well_formed φ ->
@@ -401,14 +419,14 @@ Section WrapUnwrap.
         specialize (Hbase H).
         specialize (Hstep_total Hbase).
 
-        pose proof (wrap_FOL_step Γ C φ ψ x Ht) as Hwrap_FOL_step.
-        specialize (Hwrap_FOL_step wfphi wfpsi wfscpred Hstep_total).
+        pose proof (unwrap_FOL_step Γ C φ ψ x Ht) as Hunwrap_FOL_step.
+        specialize (Hunwrap_FOL_step wfphi wfpsi wfscpred Hstep_total).
 
         (* 'Then by the equality ϕ = ∃x.(x ∧ x ∈ ϕ) we are done' *)
         fromMLGoal.
 
-        rewrite (exists_quantify_set_builder Γ C φ x Hisxfresh) in Hwrap_FOL_step.
-        rewrite (exists_quantify_contextual_implication C ψ x) in Hwrap_FOL_step.
+        rewrite (exists_quantify_set_builder Γ C φ x Hisxfresh) in Hunwrap_FOL_step.
+        rewrite (exists_quantify_contextual_implication C ψ x) in Hunwrap_FOL_step.
         * set_solver.
         * unfold evar_is_fresh_in. set_solver.
         * unfold evar_is_fresh_in. set_solver.
@@ -416,14 +434,14 @@ Section WrapUnwrap.
           ++ wf_auto2.
           ++ wf_auto2.
           ++ wf_auto2.
-          ++ eapply (pf_iff_proj1 Γ φ (ex, b0 and b0 ∈ml φ)).
+          ++ apply (pf_iff_proj1 Γ φ (ex, b0 and b0 ∈ml φ)).
             -- wf_auto2.
             -- wf_auto2.
             -- exact base_eq.
-          ++ exact Hwrap_FOL_step.
+          ++ exact Hunwrap_FOL_step.
   Qed.
 
-  (* layer 2 lemmas for wrap and unwrap*)
+  (* layer 2 lemmas for wrap and unwrap *)
   Lemma MLGoal_unwrap
      Γ φ ψ (C : StructureContext):
     Definedness_Syntax.theory ⊆ Γ ->

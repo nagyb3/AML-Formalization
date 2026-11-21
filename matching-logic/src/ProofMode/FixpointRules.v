@@ -10,6 +10,8 @@ Set Default Proof Mode "Classic".
 (* TODO: check how we could rephrase the layer 2 lemmas to use arbitiary l instead of [] *)
 (* note: this might not be needed for the actual automation but would probably be the proper way to do it *)
 
+(* Reference for `=lfp`: definition 28 in Matching μ-logic *)
+
 Section Frame.
 
   Context {Σ : Signature} {definedness_syntax : Definedness_Syntax.Syntax}.
@@ -26,8 +28,7 @@ Section Frame.
     unfold sc_plug; simpl.
     
     assert (HC: Γ ⊢i sc_ac.[□↦A] ---> sc_ac.[□↦B] using i).
-    + Check Framing.
-      apply Framing.
+    + apply Framing.
       - try_solve_pile.
       - exact H.
 
@@ -60,13 +61,39 @@ Section Frame.
     - exact H.
   Qed.
 
+  (* helper lemma for the unfoldr tactic *)
+  Lemma MLGoal_unfoldr_derive_impl Γ (C : StructureContext) φ A B i :
+    Γ ⊢i φ ---> sc_plug C A using i ->
+    well_formed (sc_pred C) ->
+    well_formed φ ->
+    well_formed A ->
+    well_formed B ->
+    of_MLGoal (mkMLGoal Σ Γ [] (A ---> B) i) ->
+    of_MLGoal (mkMLGoal Σ Γ [] (φ ---> sc_plug C B) i).
+  Proof.
+    intros HscplugA wfscpred wfphi wfA wfB HABimpl.
+    
+    unfold of_MLGoal in *. simpl in *.
+    intros _ wfl.
+
+    specialize (HABimpl ltac:(wf_auto2) wfl).
+
+    pose proof (Framing_StructureContext Γ C A B i wfscpred HABimpl) as HFraming.
+    toMLGoal; simpl in *.
+    + wf_auto2.
+    + mlIntro "H0".
+      mlApplyMeta HFraming.
+      mlApplyMeta HscplugA.
+      mlExact "H0".
+  Qed.
+
 End Frame.
 
 Tactic Notation "mlFrame" constr(C) :=
   apply (MLGoal_frame _ _ _ _ C); [ try wf_auto2 | try wf_auto2 |].
 
 (* Note: This implementation of unfoldr is for unparametric sorts, the paper uses recursive parametrics sorts
-The UnfoldR section will likely need to be restated when we introduce parametric sorts properly.
+The `unfold_r` lemma will likely need to be restated when we introduce parametric sorts properly.
 This should be treated as an expirements for now on unparametric sorts.
 *)
 Section UnfoldR.
@@ -79,100 +106,43 @@ Section UnfoldR.
   
   (* layer 1 lemma *)
   Lemma unfold_r
-    Γ ψ φ C i:
-    well_formed (sc_pred C) ->
+    Γ ψ φ i:
     well_formed (patt_mu ψ) ->
     well_formed φ ->
-    Γ ⊢i φ ---> sc_plug C (instantiate (patt_mu ψ) (patt_mu ψ)) using i ->
-    Γ ⊢i φ ---> sc_plug C (patt_mu ψ) using i.
+    Γ ⊢i φ ---> (instantiate (patt_mu ψ) (patt_mu ψ)) using i ->
+    Γ ⊢i φ ---> (patt_mu ψ) using i.
   Proof.
     intros.
 
-    assert (Γ ⊢i sc_plug C (instantiate (patt_mu ψ) (patt_mu ψ)) --->
-            sc_plug C (patt_mu ψ) using i).
+    assert (Γ ⊢i (instantiate (patt_mu ψ) (patt_mu ψ)) --->
+            (patt_mu ψ) using i).
     + useBasicReasoning.
-      pose proof (Framing_StructureContext Γ C (instantiate (patt_mu ψ) (patt_mu ψ)) (patt_mu ψ) _ H (Pre_fixp Γ ψ H0)).
-      exact H3.
+      pose proof (Pre_fixp Γ ψ ltac:(wf_auto2)).
+      exact H2.
     + mlIntro "H".
-      mlApplyMeta H3.
       mlApplyMeta H2.
+      mlApplyMeta H1.
       mlExact "H".
   Qed.
 
   (* layer 2 lemma *)
   Lemma MLGoal_UnfoldR
-    Γ (C: StructureContext) φ ψ i :
-    well_formed (sc_pred C) ->
+    Γ φ ψ i :
     well_formed (patt_mu ψ) ->
     well_formed (φ) ->
-    well_formed (φ ---> sc_plug C (instantiate (patt_mu ψ) (patt_mu ψ))) ->
-    of_MLGoal (mkMLGoal Σ Γ [] (φ ---> sc_plug C (instantiate (patt_mu ψ) (patt_mu ψ))) i) ->
-    of_MLGoal (mkMLGoal Σ Γ [] (φ ---> sc_plug C (patt_mu ψ)) i).
+    of_MLGoal (mkMLGoal Σ Γ [] (φ ---> (instantiate (patt_mu ψ) (patt_mu ψ))) i) ->
+    of_MLGoal (mkMLGoal Σ Γ [] (φ ---> (patt_mu ψ)) i).
   Proof.
-    intros wfpred wfmu wfphi wfunf H.
+    intros wfmu wfphi H.
     unfold of_MLGoal in *. simpl in *.
 
     intros _ wfl.
-    specialize (H wfunf wfl).
-    apply unfold_r; [wf_auto2 | wf_auto2 | wf_auto2 |].
+    specialize (H ltac:(wf_auto2) wfl).
+    apply unfold_r; [wf_auto2 | wf_auto2 |].
     + exact H.
   Qed.
   
 End UnfoldR.
-
-(* helper tactic for getting the context in which we the patt_mu (μ), returns a term *)
-Ltac find_mu_appctx_ctx p :=
-  match p with
-  | patt_mu _ => constr:(box)
-  | patt_app ?a ?b =>
-    let C := find_mu_appctx_ctx b in constr:(ctx_app_r a C ltac:(wf_auto2))
-  | patt_app ?a ?b =>
-    let C := find_mu_appctx_ctx a in constr:(ctx_app_l C b ltac:(wf_auto2))
-  | _ =>
-    let p' := eval hnf in p in
-    match p' with
-      | patt_mu _ => constr:(box)
-      | _         => fail "no mu ctx found using find_mu_ctx"
-    end
-  end.
-
-Ltac find_mu_appctx_body p :=
-  match p with
-  | patt_mu ?a => a
-  | patt_app _ ?b => find_mu_appctx_body b
-  | patt_app ?a _ => find_mu_appctx_body a
-  | _ =>
-    let p' := eval hnf in p in
-    match p' with
-    | patt_mu ?a => a
-    | _          => fail "no mu body found using find_mu_body"
-    end
-  end.
-
-Ltac find_mu_sc_ctx p :=
-  match p with
-    | patt_and ?a ?pred =>
-      let AppCtx := find_mu_appctx_ctx a in
-      constr:({| sc_ac := AppCtx ; sc_pred := pred |})
-    | _ => fail "find_mu_sc_ctx failed"
-  end.
-  
-Ltac find_mu_sc_body p :=
-  match p with
-    | patt_and ?a ?pred => find_mu_appctx_body a
-    | _ => fail "find_mu_sc_ctx failed"
-  end.
-
-Ltac mlUnfoldR :=
-  _ensureProofMode;
-  lazymatch goal with
-  | [ |- @of_MLGoal _ (@mkMLGoal _ ?Ctx _ (patt_imp ?a ?b) ?i) ] =>
-      let C := find_mu_sc_ctx b in
-      let φ := find_mu_sc_body b in
-      apply (MLGoal_UnfoldR Ctx C a φ i);
-      [ try wf_auto2 | try wf_auto2 | try wf_auto2 | try wf_auto2 | ]
-  | _ => fail "mlUnfoldR failed"
-  end.
 
 Ltac mlChangeConcl p :=
   lazymatch goal with
@@ -180,50 +150,61 @@ Ltac mlChangeConcl p :=
       change (@of_MLGoal Sg (@mkMLGoal Sg G l p i))
   end.
 
+Ltac mlUnfoldR H :=
+  _ensureProofMode;
+  apply (MLGoal_unfoldr_derive_impl _ _ _ _ _ _ (H ltac:(wf_auto2) ltac:(wf_auto2)));
+  [wf_auto2 | wf_auto2 | wf_auto2 | wf_auto2 |];
+  lazymatch goal with
+  | [ |- @of_MLGoal _ (@mkMLGoal _ ?Γ _ (patt_imp ?a ?b) ?i) ] =>
+    let b' := eval hnf in b in 
+    lazymatch b' with
+      | patt_mu ?ψ =>
+          mlChangeConcl (patt_imp a (patt_mu ψ));
+          apply (MLGoal_UnfoldR Γ a ψ i);
+          [ try wf_auto2 | try wf_auto2 |]
+      | _ => fail "mlUnfoldr failed (no patt mu)"
+    end
+  | _ => fail "mlUnfoldR failed"
+  end;
+  simpl;
+  try (mlIntro "Hz"; first [ mlLeft; mlExact "Hz" | mlRight; mlExact "Hz" ]).
+
 Section UnfoldRExamples.
 
   Context {Σ : Signature} {definedness_syntax : Definedness_Syntax.Syntax} (zero succ: symbols) (Γ : Theory).
   
   (* nat is a recusively defined symbol: (B0) *)
   Definition NatPattern := patt_mu (patt_sym zero or patt_sym succ ⋅ B0).
-
-  Example unfoldr_no_context_example : 
-    Γ ⊢i patt_sym succ ⋅ NatPattern and patt_top --->
-     NatPattern and patt_top using AnyReasoning.
-  Proof.
-
-    toMLGoal. simpl in *; try wf_auto2.
-
-    mlUnfoldR.
-
-    mlChangeConcl (patt_sym succ ⋅ NatPattern and patt_top ---> 
-              (patt_sym zero or patt_sym succ ⋅ NatPattern) and patt_top).
-
-    mlIntro "H".
-    
-    mlSplitAnd.
-    - mlDestructAnd "H". mlRight. mlAssumption.
-    - mlDestructAnd "H". mlAssumption.
-  Qed.
   
-  Example unfoldr_in_context_example : 
-    Γ ⊢i  patt_sym succ ⋅ (patt_sym succ ⋅ NatPattern) and Top ---> patt_sym succ ⋅ NatPattern and Top using AnyReasoning.
+  Example unfoldr_first
+    (C: StructureContext) φ i :
+    well_formed φ ->
+    well_formed (sc_pred C) ->
+    of_MLGoal (mkMLGoal Σ Γ [] (φ ---> sc_plug C (patt_sym zero)) i) ->
+    of_MLGoal (mkMLGoal Σ Γ [] (φ ---> sc_plug C (NatPattern)) i).
   Proof.
+    intros wfphi wfscpred H.
+    mlUnfoldR H.
+  Qed.
 
-    toMLGoal. simpl in *; try wf_auto2.
-    mlUnfoldR.
-    mlChangeConcl (patt_sym succ ⋅ (patt_sym succ ⋅ NatPattern) and patt_top ---> 
-      patt_sym succ ⋅ (patt_sym zero or patt_sym succ ⋅ NatPattern) and patt_top).
-    mlFrame {| sc_ac := ctx_app_r (patt_sym succ) box ltac:(wf_auto2) ;
-            sc_pred := Top |}.
-    mlIntro "H".
-    mlRight.
-    mlAssumption.
+  Example unfoldr_second
+    (C: StructureContext) φ i :
+    well_formed φ ->
+    well_formed (sc_pred C) ->
+    of_MLGoal (mkMLGoal Σ Γ [] (φ ---> sc_plug C (patt_sym succ ⋅ NatPattern)) i) ->
+    of_MLGoal (mkMLGoal Σ Γ [] (φ ---> sc_plug C (NatPattern)) i).
+  Proof.
+    intros wfphi wfpsi H.
+    mlUnfoldR H.
   Qed.
 
 End UnfoldRExamples.
 
-
+(*
+    φ -> ψ
+  -------
+  ∃x.φ -> ψ
+*)
 Section ElimExists.
   (* layer 1 lemma: Ex_gen *)
 
@@ -249,9 +230,14 @@ Section ElimExists.
   Qed.
 
 End ElimExists.
- 
-Tactic Notation "mlElimExists" := _ensureProofMode; apply MLGoal_elim_exists.
 
+Tactic Notation "mlElimExists" constr(x) := _ensureProofMode; apply (MLGoal_elim_exists _ _ _ x).
+
+(*
+    φ ->  ψ
+  -------
+    φ -> ∀y.ψ
+*)
 Section ElimForall.
 
   Context {Σ : Signature} {definedness_syntax: Definedness_Syntax.Syntax}.
@@ -280,7 +266,7 @@ Section ElimForall.
 
 End ElimForall.
 
-Tactic Notation "mlElimForall" := _ensureProofMode; apply MLGoal_Elim_Forall; try assumption.
+Tactic Notation "mlElimForall" constr(x) := _ensureProofMode; apply (MLGoal_Elim_Forall _ _ _ _ x); try assumption.
 
 Lemma example_ml_elim_forall_1 {Σ : Signature} {definedness_syntax: Definedness_Syntax.Syntax}
     a b Γ (C : StructureContext) x:
@@ -293,11 +279,16 @@ Lemma example_ml_elim_forall_1 {Σ : Signature} {definedness_syntax: Definedness
  Γ ⊢ a ---> (forall_quantify x (contextual_implication C b)).
 Proof.
   intros.
-  mlElimForall. 
+  mlElimForall x.
   fromMLGoal.
   exact H4.
 Qed.
 
+(* currently stated in the more general form then the paper's version:
+   φ -> ∀x.(C ⊸ ψ)
+  -------
+   φ -> (C ⊸ ψ)
+*)
 Section IntroForall.
 
   Context {Σ : Signature} {definedness_syntax: Definedness_Syntax.Syntax}.
